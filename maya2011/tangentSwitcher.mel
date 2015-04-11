@@ -1,0 +1,330 @@
+/*
+Tangent Switcher 2.7 Maya 2011 Version
+
+Concept and scripting by John P. Neumann (john@animateshmanimate.com) http://animateshmanimate.com
+This work is licensed under the 3-clause BSD ("New BSD License") license. 
+Licensing information is included in the download.
+
+What is it:
+
+Animators start by blocking in their poses. To make it a "true" blocking in, you need to have your tangents set to stepped. Unfortunately, setting it to be this way by default means you have to go through and select all your keys later and switch them back to spline so you can get your nice arcs. This became annoying to me, so I wrote this script to automagically change all of the tangents to either linear in/stepped out or spline in and out. 
+
+Usage:
+
+Put this script onto your shelf via source tangentSwitcher.mel; tanSwitcher();. 
+Click your shelf button and a window will pop up. 
+It will auto-detect if you are using character sets and display the appropriate UI for you.
+If you don't use character sets, simply select either your object or your control (yes this works on bouncing balls, not just control curves) and choose either stepped or spline. 
+It selects all the keys in your current timeline and switches them.
+Done.
+If you do use character sets your available character sets will be displayed for you. 
+Select which ones you wish to modify.
+Now select whether you want to switch them to stepped or spline.
+It selects all the keys in your current timeline and switches them.
+Done.
+
+If you want to deselect everything, simply double click on an item. You can now, also, re-order the items by dragging and dropping them if you don't want them listed alphabetically, which is the default
+
+Limitations:
+
+None known!
+
+Bugs:
+
+None known!
+
+ToDo:
+
+* Try to integrate the graph editor and dope sheet editor directly into the UI
+* Use a listbox for the non-character set one as well and have it auto-load anything with an animation curve attached to it
+* Put a filter on the aforementioned listbox so users can filter out the objects they want selected
+
+Changelog:
+
+2.7
+* changed some procedures to be able to integrate with QT Interface
+* updated UI for Maya 2011 using QT
+* changed the default of spline tangents to flat which reduces penetration of ground plane issues
+* added a button to launch the Graph Editor and the Dope Sheet Editor
+* fixed a bug with multi-selection 
+* now use shift to select multiple items
+* double click to deselect all items
+* added ability to re-order items in the list for character sets
+* added version checker
+* cleaned up TONS of code
+* added better comments to the code
+* reformatted the code because it was ugly as hell
+* took license information out of the script since it's now included as part of the download
+
+2.6
+* changed some procedure names and variables
+* cleaned up some code
+
+2.5
+* redid the layout so it made more sense
+* cleaned up the code a bit
+* renamed some procedures and reduced rendundancy
+
+2.4
+* fixed another nasty bug that made it so that if you had two characters in a scene and you selected a character's character set and changed the tangent and then selected another character set (from either the same character or another), both would inherit the last tangent command given. this was because multi-select is enabled and the selection was not being cleared after the tangents were changed.
+* fixed a bug where time was being taken from the entire timeline rather than the current timeline's minimum and maximum values. now if you simply set your options for your timeline like you normally would it will only affect those keyframes.
+* removed a menu option so that users would just get the window that they needed rather than prompting them to choose one.
+
+2.3
+* fixed a nasty UI bug that disallowed os x users the pleasure of using this script (and since I use os x it kinda matters to me)
+* changed the line endings to be *NIX compatible (since Windows is idiotic about how it handles line endings)
+
+2.2
+* added about and help buttons
+* finished adding option for simple and advanced interfaces
+
+2.1
+* began adding simple and advanced features
+
+2.0
+* added in options to allow users to choose their in and out tangent types
+* cleaned up code
+* almost completely re-written, thus the reason for a full version jump
+
+1.2
+* added new windows for easier use by average users
+* added in a non-character set version
+* renamed some procedures to avoid conflicts
+* renamed some windows to avoid conflicts
+
+1.1
+* rewrote almost from scratch
+* removed "update" button
+* made character sets load by default
+* fixed bug where multiples of the same character sets were listed
+* unbroke entire script
+* removed useless and/or redundant code
+* added code to delete the windows
+
+1.0
+* added more buttons to make process easier
+* broke entire script
+* made window smaller
+
+0.5
+* fixed "stepped" option to be stepped and not clamped
+* made option to go back to spline instead of linear
+* added full gui
+* various minor fixes
+
+0.1
+* improved snappiness
+* made option to go back to linear tangents
+* fixed variable errors
+
+
+Please report any bugs to me! Feedback is appreciated as well, both bad and good
+*/
+
+
+/*
+	First check to make sure that the version of
+	Maya that the user is running can use this 
+	script. Then check to see if Character Sets 
+	are available and output the correct version 
+	of the UI.
+*/
+global proc tanSwitcher(){
+	//If Maya's version is greater than or equal to 2011 go ahead
+	if (getApplicationVersionAsFloat() >= 2011){
+		//check for character sets
+		string $charSets[] = `ls -type "character"`;
+		//find out the size of the array
+	    int $charSetSize = `size $charSets`;
+		//set the scripts directory so it only needs to be set once
+		string $scriptsDirectory = `internalVar -usd`;
+		//check size of array and output the right ui
+		if ($charSetSize < 1){
+			//For no character sets
+			print "No Character Sets. Continuing Happily...\n";
+			string $tangentSwitcherWindowNoChar = `loadUI -uiFile ($scriptsDirectory+"/tangentSwitcherNoChar.ui")`;
+			showWindow $tangentSwitcherWindowNoChar;
+		}else{
+			//For character sets
+			print "Character Sets found. Continuing Happily...\n";
+			string $tangentSwitcherWindowChar = `loadUI -uiFile ($scriptsDirectory+"/tangentSwitcherChar.ui")`;
+			showWindow $tangentSwitcherWindowChar;
+			updateCharacterSets;
+		}
+	}else{
+		//You aren't using Maya 2011 if this pops up. The upgrade is worth it! :)
+		print "You're using a version of Maya that is incompatible with this script.\n";
+	}
+}
+
+///
+/// Begin Character Set code
+///
+
+//show what character sets are available to be used
+global proc updateCharacterSets(){
+	//to get the character sets available
+	string $charSets[] = `ls -type "character"`;
+	//clear the scroll list so no duplicates show up
+	textScrollList -e -ra charSetScrollList;
+	//iterate through and add all the character sets
+	for($item in $charSets){
+		textScrollList -e -a $item charSetScrollList;
+	}
+}
+
+//simple switch
+
+//change selected character set tangents to linear/stepped tangents
+global proc steppedTangents(){
+	//select all the items that are active in the list
+	string $sel[] = `textScrollList -q -si charSetScrollList`;
+	//iterate through them and make the changes
+	for ($node in $sel){
+		select -add $node;
+		//get the start and end frame
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe to linear in/stepped out
+		keyTangent -itt "linear" -ott "step" -time $beginEnd;
+		//deselect everything in the scrollList so we don't change things we don't want to next time
+		textScrollList -e -deselectAll charSetScrollList;
+		//clear all selections
+		select -cl;
+	}
+}
+
+//change selected character set tangents to flat tangents
+global proc flatTangents(){
+	//select all the items that are active in the list
+	string $sel[] = `textScrollList -q -si charSetScrollList`;
+	//iterate through them and make the changes
+	for ($node in $sel){
+		select -add $node;
+		//get the start and end frame
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe to spline in/spline out
+		keyTangent -itt "flat" -ott "flat" -time $beginEnd;
+		//deselect everything in the scrollList so we don't change things we don't want to next time
+		textScrollList -e -deselectAll charSetScrollList;
+		//clear all selections
+		select -cl;
+	}
+}
+
+
+//advanced switch
+
+//change selected objects tangents to the user selected tangents
+global proc changeTangents(){
+	//select all the items that are active in the list
+	string $sel[] = `textScrollList -q -si charSetScrollList`;
+	//iterate through them and make the changes
+	for ($node in $sel){
+		select -add $node;
+		//query the in Tangent type
+		string $inTangent = `optionMenu -q -v inTangentComboBox`;
+		//query the out Tangent type
+		string $outTangent = `optionMenu -q -v outTangentComboBox`;
+		//get the start and end frame
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe 
+		keyTangent -itt $inTangent -ott $outTangent -time $beginEnd;
+		//deselect everything in the scrollList so we don't change things we don't want to next time
+		textScrollList -e -deselectAll charSetScrollList;
+		//clear all selections
+		select -cl;
+	}
+}
+
+///
+/// Begin No Character Set code
+///
+
+//simple switch
+
+//change selected objects set tangents to linear/stepped tangents
+global proc noCharSteppedTangents(){
+	//get selected objects
+	string $selected[] = `ls -sl`;
+	// iterate through selection
+	for ($object in $selected){
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe to linear in/stepped out
+		keyTangent -itt "linear" -ott "step" -time $beginEnd;
+		//clear all selections
+		select -cl;
+	}
+}
+
+//change selected objects tangents to flat tangents
+global proc noCharFlatTangents(){
+	//get selected objects
+	string $selected[] = `ls -sl`;
+	// iterate through selection
+	for ($object in $selected){
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe to flat in and out
+		keyTangent -itt "flat" -ott "flat" -time $beginEnd;
+		//clear all selections
+		select -cl;
+	}
+}
+
+//advanced switch
+
+//change selected objects tangents to the user selected tangents
+global proc noCharChangeTangents(){
+	//query the in Tangent type
+	string $inTangent = `optionMenu -q -v inTangentComboBox`;
+	//query the out Tangent type
+	string $outTangent = `optionMenu -q -v outTangentComboBox`;
+	//get selected objects
+	string $selected[] = `ls -sl`;
+	// iterate through selection
+	for ($object in $selected){
+		//get the start and end frame
+		int $begin = `playbackOptions -q -min`;
+		int $end = `playbackOptions -q -max`;
+		//concat the integers
+		string $beginEnd = $begin + ":" + $end;
+		//change the keyframe
+		keyTangent -itt $inTangent -ott $outTangent -time $beginEnd;
+		//clear all selections
+		select -cl;
+	}
+}
+
+///
+/// Global Help and About Functions
+///
+
+global proc tanSwitcherHelp(){
+	string $scriptsDirectory = `internalVar -usd`;
+	string $tangentSwitcherHelp = `loadUI -uiFile ($scriptsDirectory+"/helpTangentSwitcher.ui")`;
+	showWindow $tangentSwitcherHelp;
+}
+
+global proc tanSwitcherAbout(){
+	string $scriptsDirectory = `internalVar -usd`;
+	string $tangentSwitcherAbout = `loadUI -uiFile ($scriptsDirectory+"/aboutTangentSwitcher.ui")`;
+	showWindow $tangentSwitcherAbout;
+}
+
+global proc tanSwitcherOnlineHelp(){
+	showHelp -absolute "http://animateshmanimate.com/downloads/rigs_n_scripts/tangent-switcher-help/";	
+}
